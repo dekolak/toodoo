@@ -1,0 +1,16 @@
+{
+  "name": "toodoo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "api": "npm run start:dev --workspace apps/api",
+    "app": "npm run dev --workspace apps/app",
+    "build": "npm run build --workspace packages/shared && npm run build --workspace apps/api && npm run build --workspace apps/app",
+    "test": "npm test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e --workspace apps/api",
+    "seed": "npm run seed --workspace apps/api"
+  }
+}

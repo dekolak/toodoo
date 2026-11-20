@@ -1,0 +1,495 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  admin
+  manager
+  member
+}
+
+enum Priority {
+  low
+  normal
+  urgent
+}
+
+enum ValidationStatus {
+  pending
+  approved
+  rejected
+}
+
+enum StageType {
+  todo
+  doing
+  done
+}
+
+// ---------------------------------------------------------------------------
+// Multi-tenant
+// ---------------------------------------------------------------------------
+
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  logo        String?
+  colorMain   String   @default("#6366f1")
+  colorAccent String   @default("#8b5cf6")
+  plan        String   @default("free")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users              User[]
+  userTypes          UserType[]
+  projects           Project[]
+  tasks              Task[]
+  stages             Stage[]
+  tags               Tag[]
+  threads            Thread[]
+  conversations      Conversation[]
+  salons             Salon[]
+  taskTemplates      TaskTemplate[]
+  notifications      Notification[]
+  activityLogs       ActivityLog[]
+  dashboardWidgets   DashboardWidget[]
+
+  @@map("tenants")
+}
+
+// ---------------------------------------------------------------------------
+// Utilisateurs
+// ---------------------------------------------------------------------------
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String
+  firstName  String?
+  lastName   String?
+  avatar     String?
+  role       Role     @default(member)
+  tenantId   String
+  userTypeId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant               Tenant              @relation(fields: [tenantId], references: [id])
+  userType             UserType?           @relation(fields: [userTypeId], references: [id])
+  taskAssignees        TaskAssignee[]
+  taskFollowers        TaskFollower[]
+  messages             Message[]
+  notifications        Notification[]
+  activityLogs         ActivityLog[]
+  dashboardWidgets     DashboardWidget[]
+  userShortcuts        UserShortcut[]
+  userStagePreferences UserStagePreference[]
+  conversationMembers  ConversationMember[]
+  salonMembers         SalonMember[]
+  validationsSent      ValidationRequest[] @relation("ValidationRequester")
+  validationsReceived  ValidationRequest[] @relation("ValidationTarget")
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+model UserType {
+  id       String @id @default(uuid())
+  name     String
+  tenantId String
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  users  User[]
+
+  @@unique([tenantId, name])
+  @@map("user_types")
+}
+
+// ---------------------------------------------------------------------------
+// Projets
+// ---------------------------------------------------------------------------
+
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  color       String?
+  startDate   DateTime?
+  endDate     DateTime?
+  archived    Boolean   @default(false)
+  tenantId    String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  tasks      Task[]
+  milestones Milestone[]
+
+  @@index([tenantId])
+  @@map("projects")
+}
+
+model Milestone {
+  id        String   @id @default(uuid())
+  name      String
+  dueDate   DateTime
+  reached   Boolean  @default(false)
+  projectId String
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("milestones")
+}
+
+// ---------------------------------------------------------------------------
+// Taches
+// ---------------------------------------------------------------------------
+
+model Task {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  priority    Priority?
+  color       String?
+  dueDate     DateTime?
+  order       Int       @default(0)
+  archived    Boolean   @default(false)
+  archivedAt  DateTime?
+  stageId     String
+  projectId   String?
+  tenantId    String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant         Tenant              @relation(fields: [tenantId], references: [id])
+  stage          Stage               @relation(fields: [stageId], references: [id])
+  project        Project?            @relation(fields: [projectId], references: [id])
+  assignees      TaskAssignee[]
+  followers      TaskFollower[]
+  tags           TaskTag[]
+  checklistItems ChecklistItem[]
+  attachments    Attachment[]
+  validations    ValidationRequest[]
+
+  @@index([tenantId])
+  @@index([stageId])
+  @@index([projectId])
+  @@map("tasks")
+}
+
+model Stage {
+  id       String    @id @default(uuid())
+  name     String
+  order    Int       @default(0)
+  color    String?
+  type     StageType @default(todo)
+  hidden   Boolean   @default(false)
+  tenantId String
+
+  tenant              Tenant                @relation(fields: [tenantId], references: [id])
+  tasks               Task[]
+  userStagePreferences UserStagePreference[]
+
+  @@index([tenantId])
+  @@map("stages")
+}
+
+model UserStagePreference {
+  id      String  @id @default(uuid())
+  userId  String
+  stageId String
+  visible Boolean @default(true)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stage Stage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, stageId])
+  @@map("user_stage_preferences")
+}
+
+model TaskAssignee {
+  id     String @id @default(uuid())
+  taskId String
+  userId String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@map("task_assignees")
+}
+
+model TaskFollower {
+  id     String @id @default(uuid())
+  taskId String
+  userId String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@map("task_followers")
+}
+
+model ChecklistItem {
+  id     String  @id @default(uuid())
+  label  String
+  done   Boolean @default(false)
+  order  Int     @default(0)
+  taskId String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("checklist_items")
+}
+
+model Tag {
+  id       String @id @default(uuid())
+  name     String
+  color    String @default("#6b7280")
+  tenantId String
+
+  tenant Tenant    @relation(fields: [tenantId], references: [id])
+  tasks  TaskTag[]
+
+  @@unique([tenantId, name])
+  @@map("tags")
+}
+
+model TaskTag {
+  id     String @id @default(uuid())
+  taskId String
+  tagId  String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, tagId])
+  @@map("task_tags")
+}
+
+model Attachment {
+  id          String @id @default(uuid())
+  name        String
+  size        Int
+  mimeType    String
+  storagePath String
+  taskId      String
+  createdAt   DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+model TaskTemplate {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  checklist   String?
+  tenantId    String
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("task_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+model ValidationRequest {
+  id          String           @id @default(uuid())
+  taskId      String
+  requesterId String
+  targetId    String
+  status      ValidationStatus @default(pending)
+  comment     String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  task      Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  requester User @relation("ValidationRequester", fields: [requesterId], references: [id])
+  target    User @relation("ValidationTarget", fields: [targetId], references: [id])
+
+  @@map("validation_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Discussion (Thread polymorphe comme Pose)
+// ---------------------------------------------------------------------------
+
+model Thread {
+  id         String   @id @default(uuid())
+  entityType String
+  entityId   String
+  tenantId   String
+  createdAt  DateTime @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  messages Message[]
+
+  @@unique([entityType, entityId])
+  @@index([tenantId])
+  @@map("threads")
+}
+
+model Message {
+  id            String   @id @default(uuid())
+  content       String?
+  audioUrl      String?
+  audioDuration Int?
+  deleted       Boolean  @default(false)
+  edited        Boolean  @default(false)
+  editedAt      DateTime?
+  pinned        Boolean  @default(false)
+  threadId      String
+  authorId      String
+  createdAt     DateTime @default(now())
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author User   @relation(fields: [authorId], references: [id])
+
+  @@index([threadId])
+  @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// Messagerie directe (WhatsApp-like)
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  id        String   @id @default(uuid())
+  tenantId  String
+  createdAt DateTime @default(now())
+
+  tenant  Tenant               @relation(fields: [tenantId], references: [id])
+  members ConversationMember[]
+
+  @@index([tenantId])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  id             String @id @default(uuid())
+  conversationId String
+  userId         String
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@map("conversation_members")
+}
+
+model Salon {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  tenantId    String
+  createdAt   DateTime @default(now())
+
+  tenant  Tenant        @relation(fields: [tenantId], references: [id])
+  members SalonMember[]
+
+  @@index([tenantId])
+  @@map("salons")
+}
+
+model SalonMember {
+  id      String @id @default(uuid())
+  salonId String
+  userId  String
+  role    String @default("member")
+
+  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([salonId, userId])
+  @@map("salon_members")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications & activite
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id         String    @id @default(uuid())
+  type       String
+  entityType String
+  entityId   String
+  message    String
+  readAt     DateTime?
+  userId     String
+  tenantId   String
+  createdAt  DateTime  @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([userId])
+  @@index([tenantId])
+  @@map("notifications")
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  action     String
+  entityType String
+  entityId   String
+  details    String?
+  userId     String
+  tenantId   String
+  createdAt  DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([entityType, entityId])
+  @@map("activity_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+
+model DashboardWidget {
+  id       String @id @default(uuid())
+  type     String
+  title    String
+  config   String?
+  position Int    @default(0)
+  color    String?
+  userId   String
+  tenantId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("dashboard_widgets")
+}
+
+model UserShortcut {
+  id     String @id @default(uuid())
+  label  String
+  action String
+  color  String?
+  order  Int    @default(0)
+  userId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_shortcuts")
+}
